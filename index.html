@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Integration Calculator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            max-width: 800px;
+            width: 100%;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-top: 0;
+        }
+        .control-panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #34495e;
+        }
+        input {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus {
+            border-color: #3498db;
+        }
+        .result-box {
+            background-color: #e8f4fd;
+            border-left: 5px solid #3498db;
+            padding: 15px;
+            border-radius: 4px;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .error {
+            color: #e74c3c;
+            background-color: #fadbd8;
+            border-left: 5px solid #e74c3c;
+        }
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            height: 400px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Definite Integration Calculator</h1>
+    
+    <div class="control-panel">
+        <div class="input-group" style="grid-column: span 2;">
+            <label for="functionInput">Function f(x)</label>
+            <input type="text" id="functionInput" value="x^2 - 2*x" placeholder="e.g., x^2, sin(x), e^x">
+        </div>
+        <div class="input-group">
+            <label for="lowerBound">Lower Limit (a)</label>
+            <input type="number" id="lowerBound" value="0" step="any">
+        </div>
+        <div class="input-group">
+            <label for="upperBound">Upper Limit (b)</label>
+            <input type="number" id="upperBound" value="3" step="any">
+        </div>
+    </div>
+
+    <div id="result" class="result-box">
+        Area (Integral) value will appear here.
+    </div>
+
+    <div class="canvas-container">
+        <canvas id="graphCanvas"></canvas>
+    </div>
+</div>
+
+<script>
+    let myChart = null;
+
+    // Set up event listeners for instant computation on input change
+    document.getElementById('functionInput').addEventListener('input', calculateAndPlot);
+    document.getElementById('lowerBound').addEventListener('input', calculateAndPlot);
+    document.getElementById('upperBound').addEventListener('input', calculateAndPlot);
+
+    // Initial calculation loop
+    calculateAndPlot();
+
+    function calculateAndPlot() {
+        const functionStr = document.getElementById('functionInput').value;
+        const a = parseFloat(document.getElementById('lowerBound').value);
+        const b = parseFloat(document.getElementById('upperBound').value);
+        const resultDiv = document.getElementById('result');
+
+        if (!functionStr || isNaN(a) || isNaN(b)) {
+            resultDiv.innerHTML = "Please fill out all inputs with valid numbers.";
+            resultDiv.className = "result-box";
+            return;
+        }
+
+        try {
+            // Compile the math expression using math.js
+            const expr = math.compile(functionStr);
+
+            // 1. Calculate the Integral using Simpson's Rule
+            const n = 1000; // number of intervals (must be even)
+            const h = (b - a) / n;
+            let integralSum = expr.evaluate({x: a}) + expr.evaluate({x: b});
+
+            for (let i = 1; i < n; i++) {
+                const x = a + i * h;
+                if (i % 2 === 0) {
+                    integralSum += 2 * expr.evaluate({x: x});
+                } else {
+                    integralSum += 4 * expr.evaluate({x: x});
+                }
+            }
+            const integralResult = (h / 3) * integralSum;
+
+            // Update result block
+            resultDiv.innerHTML = `Integral Value: <span style="color:#2980b9">${integralResult.toFixed(5)}</span>`;
+            resultDiv.className = "result-box";
+
+            // 2. Generate data for Graph Plotting
+            // We expand the view window slightly wider than [a, b] to give context like Desmos
+            const padding = Math.max(Math.abs(b - a) * 0.5, 1);
+            const viewMin = Math.min(a, b) - padding;
+            const viewMax = Math.max(a, b) + padding;
+            const pointsCount = 200;
+
+            const mainLineData = [];
+            const shadedData = [];
+
+            for (let i = 0; i <= pointsCount; i++) {
+                const x = viewMin + (i * (viewMax - viewMin)) / pointsCount;
+                let y;
+                try {
+                    y = expr.evaluate({x: x});
+                } catch(e) {
+                    y = null;
+                }
+
+                if (typeof y === 'number' && !isNaN(y)) {
+                    mainLineData.push({x: x, y: y});
+                    
+                    // Populate data for the integrated/shaded region
+                    if (x >= Math.min(a, b) && x <= Math.max(a, b)) {
+                        shadedData.push({x: x, y: y});
+                    }
+                }
+            }
+
+            updateChart(mainLineData, shadedData, a, b);
+
+        } catch (error) {
+            resultDiv.innerHTML = "Error parsing expression. Make sure to use explicit operators (e.g., 2*x instead of 2x).";
+            resultDiv.className = "result-box error";
+        }
+    }
+
+    function updateChart(lineData, shadedData, a, b) {
+        const ctx = document.getElementById('graphCanvas').getContext('2d');
+
+        // Destroy previous chart instance if it exists to refresh cleanly
+        if (myChart) {
+            myChart.destroy();
+        }
+
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'f(x)',
+                        data: lineData,
+                        borderColor: '#2c3e50',
+                        borderWidth: 3,
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0.1
+                    },
+                    {
+                        label: `Integrated Region [${a}, ${b}]`,
+                        data: shadedData,
+                        borderColor: 'transparent',
+                        backgroundColor: 'rgba(52, 152, 219, 0.4)',
+                        fill: 'origin', // fills down to y=0 line
+                        pointRadius: 0,
+                        tension: 0.1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        position: 'bottom',
+                        grid: {
+                            color: '#e2e2e2'
+                        },
+                        title: {
+                            display: true,
+                            text: 'x'
+                        }
+                    },
+                    y: {
+                        type: 'linear',
+                        grid: {
+                            color: '#e2e2e2'
+                        },
+                        title: {
+                            display: true,
+                            text: 'y'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: {
+                            filter: function(item, chartData) {
+                                // Logic to remove empty/unwanted items in legend labels
+                                return item.text !== undefined;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+</script>
+
+</body>
+</html>
